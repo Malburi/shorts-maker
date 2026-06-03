@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-950 text-gray-100 min-h-screen;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2 px-6 rounded-xl
+           transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .card {
+    @apply bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden;
+  }
+}

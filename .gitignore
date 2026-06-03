@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Uploads & outputs (runtime data)
+uploads/
+outputs/
+backend/uploads/
+backend/outputs/
+
+# Crash dumps
+*.stackdump
+
+# Node
+frontend/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
