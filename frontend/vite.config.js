@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8000',
       '/outputs': 'http://localhost:8000',
+      '/create_outputs': 'http://localhost:8000',
     },
   },
 })

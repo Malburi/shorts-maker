@@ -37,7 +37,7 @@ def _generate_ai_sync(prompt: str, output_path: Path) -> bool:
         resp = client.images.generate(
             model="gpt-image-1",
             prompt=prompt,
-            size="1024x1792",  # 9:16 vertical
+            size="1024x1536",  # portrait (gpt-image-1 지원 최대 세로)
             quality="low",
             n=1,
         )

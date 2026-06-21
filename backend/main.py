@@ -1,6 +1,8 @@
 import uuid
 import asyncio
 import os
+import re
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -13,10 +15,14 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Q
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel as PydanticBaseModel
 from .models import Job, JobStatus
 from .pipeline import run_pipeline
+from .routers.create import router as create_router
+from .services.rag import query as rag_query
 
 app = FastAPI(title="Shorts Maker API")
+app.include_router(create_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,10 +33,13 @@ app.add_middleware(
 
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
+CREATE_OUTPUT_DIR = Path("create_outputs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+CREATE_OUTPUT_DIR.mkdir(exist_ok=True)
 
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+app.mount("/create_outputs", StaticFiles(directory=str(CREATE_OUTPUT_DIR)), name="create_outputs")
 
 jobs: dict[str, Job] = {}
 
@@ -126,6 +135,77 @@ async def get_history():
         except Exception:
             pass
     return items
+
+
+_YT_PATTERN = re.compile(
+    r"(youtube\.com/(watch\?.*v=|shorts/)|youtu\.be/)[A-Za-z0-9_\-]+"
+)
+
+
+class YoutubeRequest(PydanticBaseModel):
+    url: str
+    ai_thumbnail: bool = True
+
+
+async def _download_and_run(job_id: str, url: str, video_path: Path, ai_thumbnail: bool):
+    job = jobs[job_id]
+    try:
+        job.step = "YouTube 영상 다운로드 중..."
+        job.status = JobStatus.PROCESSING
+        job.progress = 2
+
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "yt-dlp",
+                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "--merge-output-format", "mp4",
+                "-o", str(video_path),
+                url,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr[:300] or "yt-dlp 다운로드 실패")
+
+        await run_pipeline(job_id, video_path, OUTPUT_DIR, jobs, ai_thumbnail)
+    except Exception as exc:
+        job.status = JobStatus.ERROR
+        job.error = str(exc)
+
+
+@app.post("/api/youtube")
+async def download_youtube(body: YoutubeRequest, background_tasks: BackgroundTasks):
+    if not _YT_PATTERN.search(body.url):
+        raise HTTPException(400, "YouTube URL이 아닙니다. (youtube.com 또는 youtu.be 링크를 입력하세요)")
+
+    job_id = str(uuid.uuid4())
+    video_path = UPLOAD_DIR / f"{job_id}.mp4"
+
+    # Extract video title from URL for display
+    video_id = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_\-]{11})", body.url)
+    filename = f"youtube_{video_id.group(1)}.mp4" if video_id else "youtube_video.mp4"
+
+    job = Job(id=job_id, filename=filename)
+    jobs[job_id] = job
+
+    background_tasks.add_task(_download_and_run, job_id, body.url, video_path, body.ai_thumbnail)
+    return {"job_id": job_id}
+
+
+class ChatRequest(PydanticBaseModel):
+    question: str
+
+
+@app.post("/api/jobs/{job_id}/chat")
+async def chat_with_video(job_id: str, body: ChatRequest):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    if not job.has_knowledge:
+        raise HTTPException(400, "지식 베이스가 아직 준비되지 않았습니다.")
+    return await rag_query(job_id, body.question)
 
 
 @app.get("/api/health")

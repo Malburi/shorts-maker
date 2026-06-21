@@ -11,6 +11,14 @@ uploads/
 outputs/
 backend/uploads/
 backend/outputs/
+create_outputs/
+chroma_db/
+
+# Build artifacts
+frontend/dist/
+
+# Harness working dir (analysis scratch)
+_workspace/
 
 # Crash dumps
 *.stackdump

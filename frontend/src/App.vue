@@ -55,7 +55,14 @@
           :shorts="job.shorts"
           :video-duration="job.video_duration ?? 0"
           :highlight-reel-url="job.highlight_reel_url ?? null"
+          :job-id="jobId"
+          :has-knowledge="job.has_knowledge ?? false"
         />
+      </template>
+
+      <!-- ── AI CREATE TAB ── -->
+      <template v-if="activeTab === 'ai-create'">
+        <AICreateTab />
       </template>
 
       <!-- ── HISTORY TAB ── -->
@@ -82,10 +89,12 @@ import UploadZone from './components/UploadZone.vue'
 import ProgressPanel from './components/ProgressPanel.vue'
 import ResultsGrid from './components/ResultsGrid.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
+import AICreateTab from './components/AICreateTab.vue'
 
 const tabs = [
-  { id: 'create',  label: '🎬 새 쇼츠 만들기' },
-  { id: 'history', label: '📂 히스토리' },
+  { id: 'create',    label: '🎬 새 쇼츠 만들기' },
+  { id: 'ai-create', label: '✨ AI 창작' },
+  { id: 'history',   label: '📂 히스토리' },
 ]
 
 const activeTab = ref('create')

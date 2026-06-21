@@ -49,7 +49,7 @@ def _select_sync(transcript_text: str, total_duration: float) -> list:
 
             except Exception as e:
                 last_err = e
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ("429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")):
                     time.sleep(10 * (attempt + 1))
                     continue
                 break

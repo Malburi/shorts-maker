@@ -40,7 +40,7 @@
           @click="openPlayer(s)"
         >
           <img
-            :src="s.thumbnail_url"
+            :src="previewSet.has(s.index) && s.preview_frame_url ? s.preview_frame_url : s.thumbnail_url"
             :alt="s.title"
             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             @error="onImgError($event, s)"
@@ -99,6 +99,18 @@
             <p class="text-sm text-gray-300 leading-relaxed">{{ s.reason }}</p>
           </div>
 
+          <!-- Frame toggle -->
+          <button
+            v-if="s.preview_frame_url"
+            class="w-full text-xs py-1.5 rounded-lg transition-colors font-medium border"
+            :class="previewSet.has(s.index)
+              ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-900/60'
+              : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200 hover:bg-gray-700'"
+            @click.stop="togglePreview(s.index)"
+          >
+            {{ previewSet.has(s.index) ? '🎨 AI 썸네일 보기' : '🎬 원본 프레임 보기' }}
+          </button>
+
           <!-- Download buttons -->
           <div class="flex gap-2 mt-auto pt-1">
             <a
@@ -123,6 +135,9 @@
         </div>
       </div>
     </div>
+
+    <!-- RAG Chat -->
+    <ChatPanel v-if="hasKnowledge && jobId" :job-id="jobId" />
 
     <!-- Highlight reel modal -->
     <Teleport to="body">
@@ -214,7 +229,11 @@
               </a>
               <a :href="activeShort.thumbnail_url" download
                  class="text-center text-sm bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-xl transition-colors font-medium">
-                🖼 썸네일 다운로드
+                🖼 AI 썸네일 다운로드
+              </a>
+              <a v-if="activeShort.preview_frame_url" :href="activeShort.preview_frame_url" download
+                 class="text-center text-sm bg-amber-900/50 hover:bg-amber-900/70 text-amber-200 py-2.5 rounded-xl transition-colors font-medium border border-amber-800/40">
+                🎬 원본 프레임 다운로드
               </a>
             </div>
           </div>
@@ -226,17 +245,27 @@
 
 <script setup>
 import { ref } from 'vue'
+import ChatPanel from './ChatPanel.vue'
 
 const props = defineProps({
   shorts: Array,
   videoDuration: { type: Number, default: 0 },
   highlightReelUrl: { type: String, default: null },
+  jobId: { type: String, default: null },
+  hasKnowledge: { type: Boolean, default: false },
 })
 
 const activeShort = ref(null)
 const highlightOpen = ref(false)
+const previewSet = ref(new Set())
 
 function openPlayer(s) { activeShort.value = s }
+
+function togglePreview(index) {
+  const s = new Set(previewSet.value)
+  s.has(index) ? s.delete(index) : s.add(index)
+  previewSet.value = s
+}
 
 function fmtTime(s) {
   const m = Math.floor(s / 60)

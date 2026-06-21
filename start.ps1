@@ -10,8 +10,8 @@ if (-not $env:OPENAI_API_KEY) {
 # Backend
 Write-Host "`n▶ 백엔드 시작 (http://localhost:8000)..." -ForegroundColor Cyan
 $backendJob = Start-Job -ScriptBlock {
-    Set-Location "$using:root\backend"
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    Set-Location "$using:root"
+    uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 }
 
 Start-Sleep -Seconds 2

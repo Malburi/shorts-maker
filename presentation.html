@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shorts Maker — AI 숏폼 자동 생성 시스템</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+:root {
+  --bg:#07090F; --surf:#0D1220; --surf2:#131C30;
+  --bdr:rgba(100,130,210,0.14); --bdr2:rgba(100,130,210,0.28);
+  --tx:#EEF2FF; --tx2:#C4CFE0; --mu:#8896AB; --fa:#3F5068;
+  --in:#818CF8; --inl:rgba(129,140,248,0.15); --inm:rgba(129,140,248,0.32);
+  --sk:#38BDF8; --skl:rgba(56,189,248,0.12);
+  --em:#34D399; --eml:rgba(52,211,153,0.12);
+  --am:#FBBF24; --aml:rgba(251,191,36,0.12);
+  --ro:#FB7185; --rol:rgba(251,113,133,0.12);
+  --vi:#A78BFA; --vil:rgba(167,139,250,0.12);
+  --s1:0 2px 10px rgba(0,0,0,.4),0 6px 24px rgba(0,0,0,.25);
+  --s2:0 8px 28px rgba(0,0,0,.55),0 24px 64px rgba(0,0,0,.4);
+  --r:12px; --r2:18px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{color-scheme:dark}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+
+/* background */
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:radial-gradient(rgba(129,140,248,0.35) 1px,transparent 1px);background-size:32px 32px;opacity:.16}
+body::after{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 70% 55% at 5% 0%,rgba(80,40,180,0.28) 0%,transparent 60%),
+             radial-gradient(ellipse 55% 50% at 95% 100%,rgba(0,90,180,0.22) 0%,transparent 60%),
+             radial-gradient(ellipse 40% 35% at 95% 0%,rgba(120,50,200,0.2) 0%,transparent 55%)}
+
+/* progress */
+#prog{position:fixed;top:0;left:0;height:3px;z-index:600;
+  background:linear-gradient(90deg,var(--in),var(--sk));border-radius:0 3px 3px 0;
+  transition:width .3s ease;width:0%;box-shadow:0 0 14px rgba(129,140,248,0.9)}
+
+/* slide num */
+#tlabel{position:fixed;top:16px;left:22px;z-index:500;font-size:13px;color:var(--fa);
+  font-variant-numeric:tabular-nums;font-weight:600;pointer-events:none}
+
+/* deck */
+.deck{position:relative;z-index:10;width:100%;height:100vh}
+.slide{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:24px clamp(24px,5vw,80px) 96px;
+  opacity:0;pointer-events:none
+}
+.slide.on{pointer-events:auto}
+
+/* wrapper */
+.W{width:100%;max-width:1120px;display:flex;flex-direction:column;gap:20px}
+.Wc{width:100%;max-width:1120px;display:flex;flex-direction:column;gap:20px;
+    align-items:center;text-align:center}
+.Wf{width:100%;max-width:1120px;display:flex;flex-direction:column;gap:20px;flex:1;min-height:0}
+
+/* card */
+.card{background:rgba(13,18,32,0.85);border:1px solid var(--bdr);border-radius:var(--r2);box-shadow:var(--s1);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  transition:border-color .2s,box-shadow .2s,transform .2s}
+.card:hover{border-color:var(--bdr2);box-shadow:var(--s2),0 0 24px rgba(129,140,248,0.1);transform:translateY(-3px)}
+
+/* badge */
+.badge{display:inline-flex;align-items:center;padding:5px 14px;border-radius:999px;
+  font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  border:1px solid transparent;width:fit-content;line-height:1.4}
+.bi{color:#A5B4FC;background:rgba(129,140,248,0.15);border-color:rgba(129,140,248,0.32)}
+.bs{color:var(--sk);background:rgba(56,189,248,0.12);border-color:rgba(56,189,248,0.3)}
+.be{color:var(--em);background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3)}
+.ba{color:var(--am);background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3)}
+.br{color:var(--ro);background:rgba(251,113,133,0.12);border-color:rgba(251,113,133,0.3)}
+.bv{color:var(--vi);background:rgba(167,139,250,0.12);border-color:rgba(167,139,250,0.3)}
+
+/* gradient text */
+.gr{background:linear-gradient(135deg,var(--in),var(--sk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.gr2{background:linear-gradient(135deg,var(--vi),var(--in));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* slide header */
+.sh{display:flex;flex-direction:column;gap:9px}
+.sh h2{font-size:clamp(1.8rem,1.5rem+1.3vw,2.8rem);font-weight:800;line-height:1.15}
+
+/* grids */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}
+
+/* pain */
+.pain{padding:34px 24px;text-align:center}
+.pain .ic{font-size:44px;display:block;margin-bottom:16px}
+.pain h3{font-size:20px;font-weight:700;margin-bottom:10px;color:var(--tx)}
+.pain p{font-size:15px;color:var(--mu);line-height:1.78}
+
+/* sol */
+.sol{display:flex;align-items:center;gap:16px;padding:18px 22px;border-radius:var(--r);
+  border-left:3px solid;background:rgba(13,18,32,0.85);border:1px solid var(--bdr);border-radius:var(--r)}
+.sol{border-left:3px solid currentColor}
+.sol-n{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:800;color:#fff;flex-shrink:0}
+.sol-l{font-size:18px;font-weight:700;flex:1;color:var(--tx)}
+.sol-r{font-size:14.5px;color:var(--mu);flex:2;text-align:right;line-height:1.68}
+
+/* feat */
+.feat{padding:26px 22px}
+.feat .fi{font-size:38px;display:block;margin-bottom:12px}
+.feat h3{font-size:18px;font-weight:700;margin-bottom:8px;color:var(--tx)}
+.feat p{font-size:14.5px;color:var(--mu);line-height:1.72}
+
+/* pipeline nodes */
+.pipe{display:flex;align-items:stretch;gap:4px;overflow-x:auto}
+.pnd{flex:1;min-width:96px;text-align:center;padding:14px 8px;border-radius:var(--r);
+  border:1px solid var(--bdr);background:rgba(13,18,32,0.85);box-shadow:0 2px 8px rgba(0,0,0,.3);position:relative}
+.pnd .pi{font-size:26px;display:block;margin-bottom:5px}
+.pnd .pl{font-size:14px;font-weight:700;line-height:1.3;color:var(--tx)}
+.pnd .ps{font-size:12px;color:var(--mu);margin-top:4px;line-height:1.3}
+.pnd.par{border-color:rgba(52,211,153,0.35);background:rgba(52,211,153,0.08)}
+.ppar{position:absolute;top:-10px;left:50%;transform:translateX(-50%);
+  background:var(--em);color:#000;font-size:9px;font-weight:800;
+  padding:2px 9px;border-radius:999px;white-space:nowrap}
+.parr{color:var(--bdr2);font-size:20px;flex-shrink:0;display:flex;align-items:center}
+
+/* code layout */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px;flex:1;min-height:0}
+.cpanel{border-radius:var(--r2);overflow:hidden;display:flex;flex-direction:column;
+  border:1px solid #1a2133;box-shadow:var(--s2);min-height:0;background:#070d18}
+.cbar{display:flex;align-items:center;gap:8px;padding:10px 16px;
+  background:#0c1524;border-bottom:1px solid #1a2133;flex-shrink:0}
+.cbar .tl{display:flex;gap:5px}
+.cbar .tl span{width:12px;height:12px;border-radius:50%}
+.cbar .fn{font-size:13px;color:#6e7d94;font-family:monospace;margin-left:4px}
+.cpanel pre{margin:0!important;flex:1;min-height:0;overflow:auto}
+.cpanel pre code{font-size:13.5px!important;line-height:1.8!important;
+  padding:16px 20px!important;display:block;background:transparent!important}
+.cpanel code.hljs{background:transparent!important;padding:0!important}
+
+/* annotations */
+.acol{display:flex;flex-direction:column;justify-content:center;gap:12px;min-height:0;overflow-y:auto}
+.ann{display:flex;gap:12px;padding:14px 18px;border-radius:var(--r);
+  align-items:flex-start;background:rgba(13,18,32,0.85);border:1px solid var(--bdr)}
+.ann-n{width:26px;height:26px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,var(--in),var(--sk));
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;color:#fff;margin-top:1px}
+.ann h4{font-size:15px;font-weight:700;margin-bottom:4px;color:var(--tx)}
+.ann p{font-size:14px;color:var(--mu);line-height:1.62}
+.ann code{background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:5px;
+  font-size:13px;font-family:monospace;border:1px solid var(--bdr)}
+
+/* tech card */
+.tc{padding:18px 16px}
+.tc-cat{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--fa);margin-bottom:7px}
+.tc-name{font-size:19px;font-weight:800;margin-bottom:6px}
+.tc-desc{font-size:13.5px;color:var(--mu);line-height:1.62}
+
+/* demo card */
+.dc{padding:28px 24px;position:relative;overflow:hidden}
+.dc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.da::before{background:linear-gradient(90deg,var(--in),var(--sk))}
+.db::before{background:linear-gradient(90deg,var(--vi),var(--ro))}
+.dc h3{font-size:19px;font-weight:700;margin-bottom:12px;color:var(--tx)}
+.dc ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.dc li{font-size:15px;color:var(--tx2);line-height:1.58;padding-left:16px;position:relative}
+.dc li::before{content:'›';position:absolute;left:0;color:var(--in);font-weight:700;font-size:20px;line-height:1.1}
+.di{font-size:38px;display:block;margin-bottom:14px}
+
+/* stat */
+.stat{background:rgba(13,18,32,0.85);border:1px solid var(--bdr);border-radius:var(--r2);
+  padding:28px 20px;text-align:center;box-shadow:var(--s1)}
+.stat-n{font-size:clamp(2.8rem,2rem+2.5vw,5rem);font-weight:900;line-height:1;letter-spacing:-.04em}
+.stat-l{font-size:14px;color:var(--mu);margin-top:8px;line-height:1.65}
+
+/* title icon */
+.t-icon{width:84px;height:84px;border-radius:24px;display:flex;align-items:center;justify-content:center;
+  font-size:44px;background:linear-gradient(135deg,var(--in),var(--sk));
+  box-shadow:0 0 0 1px rgba(129,140,248,0.3),0 0 48px rgba(129,140,248,0.35),var(--s2);margin-bottom:26px}
+
+/* info strip */
+.strip{display:flex;gap:12px;align-items:center;padding:14px 20px;
+  background:rgba(13,18,32,0.85);border:1px solid var(--bdr);border-radius:var(--r)}
+
+/* nav */
+.nav{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:500;
+  display:flex;align-items:center;gap:12px;
+  background:rgba(10,15,26,0.96);border:1px solid var(--bdr);border-radius:999px;
+  padding:8px 18px;box-shadow:var(--s2),0 0 40px rgba(0,0,0,0.6);backdrop-filter:blur(24px)}
+.nb{width:36px;height:36px;border-radius:50%;border:1px solid var(--bdr);
+  background:none;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:16px;color:var(--tx2);
+  transition:background .15s,border-color .15s,color .15s}
+.nb:hover{background:rgba(129,140,248,0.16);border-color:rgba(129,140,248,0.42);color:var(--in)}
+.ndots{display:flex;gap:6px;align-items:center}
+.dot{width:6px;height:6px;border-radius:50%;background:rgba(100,120,180,0.3);cursor:pointer;transition:all .22s}
+.dot.on{width:22px;border-radius:4px;background:var(--in);box-shadow:0 0 12px rgba(129,140,248,0.7)}
+.nctr{font-size:13px;color:var(--mu);font-variant-numeric:tabular-nums;min-width:36px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="prog"></div>
+<div id="tlabel">01 / 15</div>
+
+<div class="deck">
+
+<!-- ── S01 TITLE ─────────────────────── -->
+<div class="slide on" id="s01">
+<div class="Wc" style="max-width:660px">
+  <div class="t-icon a">🎬</div>
+  <h1 class="a" style="font-size:clamp(2.8rem,2.2rem+3vw,5.2rem);font-weight:900;letter-spacing:-.04em;line-height:1.05">
+    <span class="gr">Shorts Maker</span>
+  </h1>
+  <p class="a" style="font-size:clamp(1.1rem,1rem+.6vw,1.45rem);color:var(--mu);max-width:480px;line-height:1.82;margin-top:4px">
+    AI가 영상을 분석하고 자동으로 쇼츠 콘텐츠를 만드는<br>멀티모달 AI 풀스택 시스템
+  </p>
+  <div class="a" style="display:flex;gap:9px;flex-wrap:wrap;justify-content:center;margin-top:6px">
+    <span class="badge bi">LangGraph</span>
+    <span class="badge bs">FastAPI · Vue 3</span>
+    <span class="badge be">Google Gemini</span>
+    <span class="badge ba">OpenAI GPT-4o</span>
+    <span class="badge br">edge-tts</span>
+    <span class="badge bv">ChromaDB RAG</span>
+  </div>
+</div>
+</div>
+
+<!-- ── S02 PROBLEM ───────────────────── -->
+<div class="slide" id="s02">
+<div class="W">
+  <div class="sh a">
+    <span class="badge br">문제 정의</span>
+    <h2>숏폼 제작의 <span class="gr">3가지 장벽</span></h2>
+  </div>
+  <div class="g3 a">
+    <div class="card pain"><span class="ic">⏱️</span><h3>시간 비용</h3><p>영상 한 편에서 하이라이트를 골라 편집하는 데 평균 2~4시간 소요</p></div>
+    <div class="card pain"><span class="ic">🎨</span><h3>디자인 장벽</h3><p>클릭을 유도하는 썸네일 제작에는 전문적인 디자인 툴과 감각이 필요</p></div>
+    <div class="card pain"><span class="ic">💡</span><h3>아이디어 고갈</h3><p>매일 새로운 주제로 대본을 쓰고 영상을 구성하는 창작 부담</p></div>
+  </div>
+</div>
+</div>
+
+<!-- ── S03 SOLUTION ──────────────────── -->
+<div class="slide" id="s03">
+<div class="W">
+  <div class="sh a">
+    <span class="badge be">해결책</span>
+    <h2>업로드 한 번으로 <span class="gr">전부 자동화</span></h2>
+  </div>
+  <div class="a" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card sol" style="color:var(--in)">
+      <div class="sol-n" style="background:linear-gradient(135deg,var(--in),var(--sk))">1</div>
+      <div class="sol-l">🎥 기존 영상 → 쇼츠 자동 추출</div>
+      <div class="sol-r">AI가 전체 영상을 분석해 임팩트 높은 장면을 골라 9:16 클립으로 자동 변환</div>
+    </div>
+    <div class="card sol" style="color:var(--sk)">
+      <div class="sol-n" style="background:linear-gradient(135deg,var(--sk),var(--em))">2</div>
+      <div class="sol-l">✨ 주제 입력 → AI가 영상 완전 창작</div>
+      <div class="sol-r">주제 하나로 대본·나레이션·이미지·자막까지 완성된 쇼츠 영상 생성</div>
+    </div>
+    <div class="card sol" style="color:var(--em)">
+      <div class="sol-n" style="background:linear-gradient(135deg,var(--em),var(--sk))">+</div>
+      <div class="sol-l">💬 영상 내용으로 AI와 대화 (RAG)</div>
+      <div class="sol-r">전사된 내용을 벡터 DB에 저장 → 자연어 질문으로 영상 내용 검색·답변</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S04 FEATURES ──────────────────── -->
+<div class="slide" id="s04">
+<div class="W">
+  <div class="sh a">
+    <span class="badge bi">주요 기능</span>
+    <h2><span class="gr">6가지 핵심 기능</span></h2>
+  </div>
+  <div class="g3 a">
+    <div class="card feat"><span class="fi">🔍</span><h3>AI 핵심 장면 탐지</h3><p>Gemini 2.5-flash로 전사 텍스트 분석, 시청자 반응이 높을 장면 3~5개 자동 선정</p></div>
+    <div class="card feat"><span class="fi">📱</span><h3>9:16 쇼츠 클립 생성</h3><p>ffmpeg으로 세로 포맷 변환, 페이드 인/아웃, ASS 자막 번인까지 자동 처리</p></div>
+    <div class="card feat"><span class="fi">🖼️</span><h3>AI 썸네일 생성</h3><p>gpt-image-1(medium)이 각 장면에 맞는 유튜브 쇼츠 스타일 썸네일 자동 생성</p></div>
+    <div class="card feat"><span class="fi">🎙️</span><h3>한국어 AI 나레이션</h3><p>Microsoft Azure Neural TTS ko-KR-SunHiNeural로 네이티브 한국어 억양 음성 합성</p></div>
+    <div class="card feat"><span class="fi">📝</span><h3>AI 완전 창작 모드</h3><p>주제 → 인터뷰 → 기획안 → 대본 → 영상까지 처음부터 AI가 제작</p></div>
+    <div class="card feat"><span class="fi">💬</span><h3>RAG 영상 질의응답</h3><p>ChromaDB + OpenAI 임베딩으로 전사된 내용에 자연어로 질문하고 답변</p></div>
+  </div>
+</div>
+</div>
+
+<!-- ── S05 PIPELINE ──────────────────── -->
+<div class="slide" id="s05">
+<div class="W">
+  <div class="sh a">
+    <span class="badge bv">시스템 파이프라인</span>
+    <h2>영상 업로드 → 쇼츠 완성 <span class="gr">전체 흐름</span></h2>
+  </div>
+  <div class="pipe a">
+    <div class="pnd"><span class="pi">📤</span><div class="pl">업로드</div><div class="ps">MP4 파일</div></div>
+    <div class="parr">›</div>
+    <div class="pnd par"><div class="ppar">PARALLEL</div><span class="pi">🎙️</span><div class="pl">전사·분석</div><div class="ps">Whisper + Gemini</div></div>
+    <div class="parr">›</div>
+    <div class="pnd par"><div class="ppar">PARALLEL</div><span class="pi">✂️</span><div class="pl">장면 클립</div><div class="ps">ffmpeg 추출</div></div>
+    <div class="parr">›</div>
+    <div class="pnd par"><div class="ppar">PARALLEL</div><span class="pi">🖼️</span><div class="pl">썸네일</div><div class="ps">gpt-image-1</div></div>
+    <div class="parr">›</div>
+    <div class="pnd"><span class="pi">🔗</span><div class="pl">하이라이트 릴</div><div class="ps">concat</div></div>
+    <div class="parr">›</div>
+    <div class="pnd"><span class="pi">💬</span><div class="pl">RAG 색인</div><div class="ps">ChromaDB</div></div>
+    <div class="parr">›</div>
+    <div class="pnd" style="border-color:rgba(129,140,248,0.4);background:rgba(129,140,248,0.1)"><span class="pi">✅</span><div class="pl" style="color:var(--in)">완료</div><div class="ps">다운로드·질의</div></div>
+  </div>
+  <div class="g3 a">
+    <div class="card" style="padding:16px 18px;border-left:3px solid var(--in)">
+      <div style="font-size:15px;font-weight:700;color:var(--in);margin-bottom:6px">LangGraph StateGraph</div>
+      <div style="font-size:14px;color:var(--mu);line-height:1.6">Send() API로 장면별 process_clip 노드를 팬아웃 병렬 처리</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:3px solid var(--sk)">
+      <div style="font-size:15px;font-weight:700;color:var(--sk);margin-bottom:6px">SSE 실시간 스트리밍</div>
+      <div style="font-size:14px;color:var(--mu);line-height:1.6">FastAPI EventSourceResponse로 처리 진행률 실시간 전송</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:3px solid var(--em)">
+      <div style="font-size:15px;font-weight:700;color:var(--em);margin-bottom:6px">AsyncIO 병렬 처리</div>
+      <div style="font-size:14px;color:var(--mu);line-height:1.6">asyncio.gather()로 TTS·이미지·클립 생성 동시 처리</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S06 LANGGRAPH CODE ─────────────── -->
+<div class="slide" id="s06">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge bi">LangGraph</span>
+    <h2>핵심 장면 <span class="gr">자동 선정 로직</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">key_moments.py</span></div>
+      <pre><code class="language-python">async def select_key_moments(state):
+    prompt = f"""전사 텍스트:
+{state['transcription']}
+
+임팩트 높은 장면 {N_CLIPS}개를 JSON으로:
+[{{"start":0,"end":30,"reason":"..."}}]"""
+
+    resp = await client.chat.completions.create(
+        model="gemini-2.5-flash",
+        messages=[{"role":"user","content":prompt}],
+        response_format={"type":"json_object"},
+    )
+    clips = json.loads(resp.choices[0].message.content)
+    return {"key_moments": clips["clips"]}
+
+
+def build_graph():
+    g = StateGraph(State)
+    g.add_node("transcribe",    transcribe_audio)
+    g.add_node("select",        select_key_moments)
+    g.add_node("process_clip",  process_clip)
+
+    # Send()로 장면 개수만큼 병렬 팬아웃
+    g.add_conditional_edges(
+        "select",
+        lambda s: [
+            Send("process_clip", {"clip": c, **s})
+            for c in s["key_moments"]
+        ],
+    )
+    g.add_edge(START, "transcribe")
+    g.add_edge("transcribe", "select")
+    return g.compile()</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>JSON 구조화 출력</h4><p>Gemini에 <code>response_format:json_object</code> 강제 지정 → 파싱 실패 방지</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>Send() 팬아웃</h4><p>핵심 장면 개수만큼 <code>process_clip</code> 노드를 LangGraph가 자동 병렬 실행</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>Gemini 폴백 체인</h4><p>2.5-flash → 2.0-flash → 1.5-flash 순서로 자동 폴백 구현</p></div></div>
+      <div class="ann"><div class="ann-n">4</div><div><h4>State 불변성</h4><p>각 노드는 dict 반환 — LangGraph가 병합해 State 갱신, 경합 없음</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S07 PIPELINE CODE ──────────────── -->
+<div class="slide" id="s07">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge bv">파이프라인</span>
+    <h2>클립 처리 <span class="gr">병렬 파이프라인</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">pipeline.py</span></div>
+      <pre><code class="language-python">async def process_clip(state: State) -&gt; State:
+    clip   = state["clip"]
+    job_id = state["job_id"]
+
+    # TTS + 썸네일 병렬 생성
+    tts_path, thumb_path = await asyncio.gather(
+        generate_tts(clip["narration"], job_id),
+        generate_thumbnail(clip["image_prompt"], job_id),
+    )
+
+    # 9:16 클립 합성
+    clip_path = await make_clip(
+        video_path = state["video_path"],
+        start      = clip["start"],
+        end        = clip["end"],
+        audio      = tts_path,
+    )
+
+    # 자막 번인
+    final_clip = await burn_subtitles(
+        clip_path, clip["narration"]
+    )
+
+    return {
+        "clips":      [final_clip],   # operator.add 누적
+        "thumbnails": [thumb_path],
+    }
+
+
+async def concat_all(state: State) -&gt; State:
+    reel = await concat_clips(state["clips"])
+    return {"highlight_reel": reel}</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>asyncio.gather() 병렬화</h4><p>TTS와 썸네일 생성을 동시에 시작 — I/O 대기 시간 절약</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>operator.add 누적</h4><p>State의 <code>clips</code> 채널은 <code>operator.add</code> 선언 → 병렬 노드 결과 자동 합산</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>ASS 자막 번인</h4><p>libass 필터로 자막을 영상 픽셀에 직접 렌더링 — 재생기 독립적</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S08 TTS CODE ───────────────────── -->
+<div class="slide" id="s08">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge bs">TTS</span>
+    <h2>Microsoft Azure Neural TTS <span class="gr">네이티브 한국어</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">tts_maker.py</span></div>
+      <pre><code class="language-python">import edge_tts, subprocess
+from pathlib import Path
+
+VOICE = "ko-KR-SunHiNeural"
+RATE  = "+10%"
+
+async def generate_tts(
+    text: str,
+    output_path: Path,
+) -&gt; float:
+    """TTS 생성 후 오디오 길이(초) 반환."""
+    communicate = edge_tts.Communicate(
+        text  = text,
+        voice = VOICE,
+        rate  = RATE,
+    )
+    await communicate.save(str(output_path))
+
+    # 정확한 오디오 길이 측정
+    result = subprocess.run(
+        ["ffprobe", "-v", "error",
+         "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1",
+         str(output_path)],
+        capture_output=True, text=True,
+    )
+    return float(result.stdout.strip())</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>edge-tts란?</h4><p>Microsoft Azure Neural TTS 비공식 무료 래퍼 — API 키 불필요, 58개 언어 지원</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>SunHiNeural 선택 이유</h4><p>Naver/Google 대비 억양·감정 표현이 가장 자연스러운 한국어 음성</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>duration 반환</h4><p>TTS 길이를 알아야 영상 클립 길이를 맞출 수 있음 — ffprobe로 정확히 측정</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S09 SSE CODE ───────────────────── -->
+<div class="slide" id="s09">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge be">SSE</span>
+    <h2>SSE를 활용한 <span class="gr">실시간 진행률 스트리밍</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">main.py</span></div>
+      <pre><code class="language-python">from sse_starlette.sse import EventSourceResponse
+
+@router.get("/jobs/{job_id}/events")
+async def job_events(job_id: str):
+    async def generator():
+        while True:
+            job = jobs.get(job_id)
+            if not job:
+                yield {"data": json.dumps({"error":"not found"})}
+                return
+
+            yield {
+                "data": json.dumps({
+                    "status":   job.status,
+                    "step":     job.step,
+                    "progress": job.progress,
+                })
+            }
+
+            if job.status in ("done", "error"):
+                return
+
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(generator())
+
+
+# Vue 프론트엔드 수신 코드
+# const es = new EventSource(`/api/jobs/${id}/events`)
+# es.onmessage = e =&gt; updateProgress(JSON.parse(e.data))
+# es.addEventListener("done", () =&gt; es.close())</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>EventSourceResponse</h4><p>sse-starlette가 FastAPI에서 SSE를 HTTP/1.1 청크 전송으로 구현</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>폴링 대비 장점</h4><p>서버→클라 단방향 푸시. 연결 1개로 지속 이벤트 전송, WebSocket보다 단순</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>Vue에서 수신</h4><p>브라우저 기본 <code>EventSource</code> API — 재연결 자동 처리, 추가 라이브러리 불필요</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S10 RAG CODE ───────────────────── -->
+<div class="slide" id="s10">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge bv">RAG</span>
+    <h2>ChromaDB + GPT-4o <span class="gr">영상 질의응답</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">rag.py</span></div>
+      <pre><code class="language-python">import chromadb
+from openai import OpenAI
+
+client = OpenAI()
+chroma = chromadb.PersistentClient(path="./chroma_db")
+
+def index_transcript(job_id: str, text: str):
+    col    = chroma.get_or_create_collection(job_id)
+    chunks = [text[i:i+500] for i in range(0, len(text), 500)]
+    embs   = client.embeddings.create(
+        input=chunks, model="text-embedding-3-small"
+    ).data
+    col.add(
+        documents  = chunks,
+        embeddings = [e.embedding for e in embs],
+        ids        = [f"chunk_{i}" for i in range(len(chunks))],
+    )
+
+def rag_query(job_id: str, question: str) -&gt; str:
+    col   = chroma.get_collection(job_id)
+    q_emb = client.embeddings.create(
+        input=[question], model="text-embedding-3-small"
+    ).data[0].embedding
+
+    results = col.query(query_embeddings=[q_emb], n_results=3)
+    context = "\n".join(results["documents"][0])
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role":"system","content":f"영상 내용:\n{context}"},
+            {"role":"user",  "content": question},
+        ],
+    )
+    return resp.choices[0].message.content</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>PersistentClient</h4><p>ChromaDB를 로컬 디스크에 영구 저장 — 서버 재시작 후에도 색인 유지</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>text-embedding-3-small</h4><p>OpenAI 최신 임베딩 모델 — 비용 효율적이며 코사인 유사도 검색 정확도 우수</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>n_results=3 컨텍스트</h4><p>상위 3개 청크만 LLM에 전달 — 토큰 비용 절감 + 관련성 높은 답변</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S11 AI CREATE CODE ─────────────── -->
+<div class="slide" id="s11">
+<div class="Wf">
+  <div class="sh a">
+    <span class="badge ba">AI 창작 모드</span>
+    <h2>주제 → 완성 영상 <span class="gr">AI 완전 자동화</span></h2>
+  </div>
+  <div class="two a">
+    <div class="cpanel">
+      <div class="cbar"><div class="tl"><span style="background:#ff5f57"></span><span style="background:#ffbd2e"></span><span style="background:#28c840"></span></div><span class="fn">create_pipeline.py</span></div>
+      <pre><code class="language-python">async def run_create_pipeline(job_id, script, out_dir):
+    scenes = script.scenes  # List[SceneData]
+
+    # ① 장면별 TTS + 이미지 병렬 생성
+    scene_results = await asyncio.gather(*[
+        _process_scene(scene, out_dir)
+        for scene in scenes
+    ])
+
+    # ② 장면 클립 순차 합성
+    clips = []
+    for tts, img, dur in scene_results:
+        clips.append(await _make_scene_clip(img, tts))
+
+    # ③ 전체 concat → 자막 번인
+    raw  = await concat_clips(clips)
+    segs = _build_ass_segments(scenes, [d for _,_,d in scene_results])
+    final = await burn_subtitles(raw, segs)
+
+    # ④ 썸네일 = 첫 장면 이미지
+    shutil.copy(scene_results[0][1], out_dir / "thumbnail.jpg")
+
+
+async def _process_scene(scene, out):
+    tts, img = await asyncio.gather(
+        generate_tts(scene.narration,
+                     out / f"tts_{scene.order}.mp3"),
+        generate_image(scene.image_prompt,
+                       out / f"img_{scene.order}.jpg"),
+    )
+    return tts, img, await get_duration(tts)</code></pre>
+    </div>
+    <div class="acol">
+      <div class="ann"><div class="ann-n">1</div><div><h4>TTS + 이미지 동시 생성</h4><p>각 장면의 나레이션(edge-tts)과 배경(gpt-image-1)을 asyncio.gather로 동시 처리</p></div></div>
+      <div class="ann"><div class="ann-n">2</div><div><h4>gpt-image-1 세로 포맷</h4><p>1024×1536 portrait — 쇼츠 9:16 비율에 최적화된 배경 이미지 생성</p></div></div>
+      <div class="ann"><div class="ann-n">3</div><div><h4>자막 번인 fallback</h4><p>ASS 번인 실패 시 raw.mp4를 final로 사용 — 항상 결과물 보장</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S12 FRONTEND ──────────────────── -->
+<div class="slide" id="s12">
+<div class="W">
+  <div class="sh a">
+    <span class="badge bs">프론트엔드</span>
+    <h2>Vue 3 + Tailwind <span class="gr">반응형 UI 3탭</span></h2>
+  </div>
+  <div class="g3 a">
+    <div class="card" style="padding:20px 18px">
+      <div style="font-size:17px;font-weight:700;margin-bottom:12px;color:var(--in)">📤 업로드 탭</div>
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:9px">
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--in);font-weight:700;font-size:18px;line-height:1.1">›</span>드래그 앤 드롭 MP4 업로드</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--in);font-weight:700;font-size:18px;line-height:1.1">›</span>SSE 실시간 진행률 바</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--in);font-weight:700;font-size:18px;line-height:1.1">›</span>쇼츠 갤러리 (썸네일 ↔ 원본 토글)</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--in);font-weight:700;font-size:18px;line-height:1.1">›</span>하이라이트 릴 미리보기·다운로드</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:20px 18px">
+      <div style="font-size:17px;font-weight:700;margin-bottom:12px;color:var(--vi)">✨ AI 창작 탭</div>
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:9px">
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--vi);font-weight:700;font-size:18px;line-height:1.1">›</span>주제 입력 → AI 인터뷰 4문답</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--vi);font-weight:700;font-size:18px;line-height:1.1">›</span>기획안 검토·수정·승인</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--vi);font-weight:700;font-size:18px;line-height:1.1">›</span>장면별 대본 미리보기·편집</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--vi);font-weight:700;font-size:18px;line-height:1.1">›</span>한국어 나레이션 + AI 이미지 합성</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:20px 18px">
+      <div style="font-size:17px;font-weight:700;margin-bottom:12px;color:var(--em)">💬 채팅 탭 (RAG)</div>
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:9px">
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--em);font-weight:700;font-size:18px;line-height:1.1">›</span>영상 선택 → 자동 ChromaDB 색인</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--em);font-weight:700;font-size:18px;line-height:1.1">›</span>자연어로 영상 내용 질문</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--em);font-weight:700;font-size:18px;line-height:1.1">›</span>GPT-4o-mini 컨텍스트 기반 답변</li>
+        <li style="font-size:15px;color:var(--tx2);padding-left:16px;position:relative"><span style="position:absolute;left:0;color:var(--em);font-weight:700;font-size:18px;line-height:1.1">›</span>스트리밍 타이핑 효과</li>
+      </ul>
+    </div>
+  </div>
+  <div class="strip a">
+    <span style="font-size:14px;font-weight:700;color:var(--mu);flex-shrink:0">기술</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <span class="badge bi">Vue 3 Composition API</span>
+      <span class="badge bs">Vite + Tailwind CSS</span>
+      <span class="badge be">EventSource SSE</span>
+      <span class="badge bv">ref() 반응형</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── S13 TECH STACK ─────────────────── -->
+<div class="slide" id="s13">
+<div class="W">
+  <div class="sh a">
+    <span class="badge bs">기술 스택</span>
+    <h2>사용된 <span class="gr">핵심 기술 8가지</span></h2>
+  </div>
+  <div class="g4 a">
+    <div class="card tc" style="border-top:3px solid var(--in)"><div class="tc-cat">AI 오케스트레이션</div><div class="tc-name" style="color:var(--in)">LangGraph</div><div class="tc-desc">StateGraph + Send() 팬아웃으로 장면 수만큼 process_clip 자동 병렬화</div></div>
+    <div class="card tc" style="border-top:3px solid var(--em)"><div class="tc-cat">핵심 장면 분석</div><div class="tc-name" style="color:var(--em)">Google Gemini</div><div class="tc-desc">gemini-2.5-flash로 전사 텍스트 분석, 멀티 모델 폴백 체인 구현</div></div>
+    <div class="card tc" style="border-top:3px solid var(--am)"><div class="tc-cat">이미지·대본·전사</div><div class="tc-name" style="color:var(--am)">OpenAI</div><div class="tc-desc">GPT-4o (대본·기획안), gpt-image-1 (썸네일), Whisper (전사), text-embedding-3-small</div></div>
+    <div class="card tc" style="border-top:3px solid var(--sk)"><div class="tc-cat">한국어 음성 합성</div><div class="tc-name" style="color:var(--sk)">edge-tts</div><div class="tc-desc">Microsoft Azure Neural TTS. ko-KR-SunHiNeural. API 키 불필요</div></div>
+    <div class="card tc" style="border-top:3px solid var(--ro)"><div class="tc-cat">영상 처리</div><div class="tc-name" style="color:var(--ro)">ffmpeg</div><div class="tc-desc">오디오 추출, 9:16 리사이즈, 클립 추출, concat demuxer, libass 자막 번인</div></div>
+    <div class="card tc" style="border-top:3px solid var(--em)"><div class="tc-cat">벡터 검색 (RAG)</div><div class="tc-name" style="color:var(--em)">ChromaDB</div><div class="tc-desc">로컬 영구 저장소. 세그먼트 청킹 → 임베딩 → 유사도 검색 → GPT-4o-mini 답변</div></div>
+    <div class="card tc" style="border-top:3px solid var(--in)"><div class="tc-cat">백엔드</div><div class="tc-name" style="color:var(--in)">FastAPI + Python</div><div class="tc-desc">비동기 REST API, SSE 스트리밍, BackgroundTasks, Pydantic v2 모델 검증</div></div>
+    <div class="card tc" style="border-top:3px solid var(--sk)"><div class="tc-cat">프론트엔드</div><div class="tc-name" style="color:var(--sk)">Vue 3 + Tailwind</div><div class="tc-desc">Composition API, ref() 반응형, EventSource SSE 수신, 반응형 갤러리 UI</div></div>
+  </div>
+</div>
+</div>
+
+<!-- ── S14 DEMO ───────────────────────── -->
+<div class="slide" id="s14">
+<div class="W" style="max-width:900px">
+  <div class="sh a" style="align-items:center;text-align:center">
+    <span class="badge bi">시연 가이드</span>
+    <h2>두 가지 <span class="gr">시연 시나리오</span></h2>
+  </div>
+  <div class="g2 a">
+    <div class="card dc da">
+      <span class="di">🎥</span>
+      <h3>시나리오 A — 기존 영상 → 쇼츠</h3>
+      <ul>
+        <li>영상 파일 업로드 (MP4) <strong style="color:var(--em)">또는 YouTube URL 입력</strong></li>
+        <li>SSE 실시간 진행률 확인</li>
+        <li>AI가 선정한 핵심 장면 3~5개 갤러리</li>
+        <li>AI 썸네일 ↔ 원본 프레임 토글</li>
+        <li>하이라이트 릴 미리보기·다운로드</li>
+        <li>💬 "이 영상의 핵심 메시지는?" RAG 질의</li>
+      </ul>
+    </div>
+    <div class="card dc db">
+      <span class="di">✨</span>
+      <h3>시나리오 B — AI 창작 모드</h3>
+      <ul>
+        <li>주제 입력 ("MZ세대 재테크 꿀팁")</li>
+        <li>AI 인터뷰 4문답</li>
+        <li>기획안 검토·수정·승인</li>
+        <li>장면별 대본 미리보기·편집</li>
+        <li>한국어 나레이션 + AI 이미지 합성</li>
+        <li>완성 영상 다운로드</li>
+      </ul>
+    </div>
+  </div>
+  <div class="a" style="text-align:center;font-size:16px;color:var(--mu)">
+    👉 <code style="background:rgba(255,255,255,0.06);padding:4px 12px;border-radius:8px;border:1px solid var(--bdr);font-size:15px;color:var(--tx)">http://localhost:5173</code> 에서 바로 시연 가능
+  </div>
+</div>
+</div>
+
+<!-- ── S15 LIMITATIONS ───────────────── -->
+<div class="slide" id="s15">
+<div class="W" style="max-width:1040px">
+  <div class="sh a">
+    <span class="badge ba">한계 & 개선 방향</span>
+    <h2>현재 시스템의 <span class="gr">제약과 다음 단계</span></h2>
+    <p style="color:var(--mu);font-size:15px;margin-top:4px">솔직한 기술 부채 분석과 프로덕션 전환 로드맵</p>
+  </div>
+  <div class="g2 a" style="gap:16px">
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--ro)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">🗂️</span>
+        <span style="font-weight:700;color:var(--ro)">인메모리 Job 저장</span>
+        <span class="badge br" style="font-size:10px;padding:2px 8px;margin-left:auto">영속성</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">서버 재시작 시 진행 중인 작업 상태가 초기화됩니다. 완료 결과물은 파일로 보존되지만 in-flight 작업은 복구 불가.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ Redis 또는 SQLite로 Job 상태 영속화</p>
+    </div>
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--ro)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">⚡</span>
+        <span style="font-weight:700;color:var(--ro)">단일 서버 구조</span>
+        <span class="badge br" style="font-size:10px;padding:2px 8px;margin-left:auto">확장성</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">동시 업로드 증가 시 CPU 집약 ffmpeg 작업이 이벤트 루프를 압박합니다. 현재는 단일 프로세스.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ Celery + Redis 태스크 큐로 워커 수평 확장</p>
+    </div>
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--am)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">🔁</span>
+        <span style="font-weight:700;color:var(--am)">파이프라인 재시도 불가</span>
+        <span class="badge ba" style="font-size:10px;padding:2px 8px;margin-left:auto">내결함성</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">LangGraph에 checkpointer가 없어 네트워크 오류 발생 시 처음부터 재실행해야 합니다. 부분 재개 불가.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ MemorySaver / SqliteSaver로 노드 단위 체크포인트</p>
+    </div>
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--am)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">💸</span>
+        <span style="font-weight:700;color:var(--am)">API 비용 의존</span>
+        <span class="badge ba" style="font-size:10px;padding:2px 8px;margin-left:auto">비용</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">gpt-image-1(high), OpenAI Whisper, GPT-4o 모두 호출당 과금. 대용량 배치 시 비용이 빠르게 증가합니다.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ Faster-Whisper(로컬) · Stable Diffusion · Gemini Flash로 대체</p>
+    </div>
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--in)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">📦</span>
+        <span style="font-weight:700;color:var(--in)">배포 환경 의존성</span>
+        <span class="badge bi" style="font-size:10px;padding:2px 8px;margin-left:auto">배포</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">ffmpeg(libass 포함), yt-dlp 등 로컬 바이너리 수동 설치 필요. 환경별 경로 차이로 재현성이 낮습니다.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ Docker 컨테이너화로 의존성 봉인</p>
+    </div>
+
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--in)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:22px">🌐</span>
+        <span style="font-weight:700;color:var(--in)">다음 단계 기능</span>
+        <span class="badge bi" style="font-size:10px;padding:2px 8px;margin-left:auto">로드맵</span>
+      </div>
+      <p style="font-size:13px;color:var(--tx2);line-height:1.7">YouTube 자동 업로드(Data API), A/B 썸네일 CTR 테스트, 다국어 TTS 자동 선택, 배치 처리 큐 UI.</p>
+      <p style="font-size:12px;color:var(--em);margin-top:8px">→ yt-dlp URL 입력은 이번 버전에서 구현 완료 ✅</p>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ── S16 CLOSING ───────────────────── -->
+<div class="slide" id="s16">
+<div class="Wc" style="max-width:720px">
+  <span class="badge be a">마무리</span>
+  <h2 class="a" style="font-size:clamp(2rem,1.6rem+2.2vw,3.4rem);font-weight:900;letter-spacing:-.03em;margin-top:8px">
+    주제 하나로 완성된 쇼츠 영상을
+  </h2>
+  <div class="g3 a" style="max-width:640px;width:100%">
+    <div class="stat"><div class="stat-n gr" id="st1">2+</div><div class="stat-l">가지 제작 모드<br>영상 업로드 / AI 완전 창작</div></div>
+    <div class="stat"><div class="stat-n gr" id="st2">8+</div><div class="stat-l">연동 AI·외부 기술<br>Gemini · GPT-4o · Whisper 외</div></div>
+    <div class="stat"><div class="stat-n gr" id="st3">98%</div><div class="stat-l">% 자동화<br>대본·음성·이미지·자막</div></div>
+  </div>
+  <p class="a" style="font-size:17px;color:var(--mu);line-height:1.9;margin-top:6px">
+    크리에이터가 아이디어에만 집중할 수 있도록 —<br>
+    <strong style="-webkit-text-fill-color:initial;background:none;color:var(--in)">나머지는 Shorts Maker가 합니다.</strong>
+  </p>
+</div>
+</div>
+
+</div><!-- /.deck -->
+
+<nav class="nav">
+  <button class="nb" id="bp">‹</button>
+  <div class="ndots" id="ndots"></div>
+  <span class="nctr" id="nctr">1 / 16</span>
+  <button class="nb" id="bn">›</button>
+</nav>
+
+<script>
+hljs.highlightAll();
+
+const slides = Array.from(document.querySelectorAll('.slide'));
+const N = slides.length;
+let cur = 0, busy = false;
+
+const prog    = document.getElementById('prog');
+const nctr    = document.getElementById('nctr');
+const tlabel  = document.getElementById('tlabel');
+const ndotsEl = document.getElementById('ndots');
+
+slides.forEach((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i === 0 ? ' on' : '');
+  d.addEventListener('click', () => go(i));
+  ndotsEl.appendChild(d);
+});
+
+function updateUI() {
+  prog.style.width = ((cur + 1) / N * 100).toFixed(1) + '%';
+  nctr.textContent = `${cur + 1} / ${N}`;
+  tlabel.textContent = `${String(cur + 1).padStart(2, '0')} / ${String(N).padStart(2, '0')}`;
+  document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i === cur));
+}
+
+function enterAnim(sl) {
+  const els = sl.querySelectorAll('.a');
+  if (!els.length) return;
+  gsap.set(els, { opacity: 0, y: 10 });
+  gsap.to(els, { opacity: 1, y: 0, duration: 0.38, stagger: 0.055, ease: 'power2.out', clearProps: 'all' });
+}
+
+/* ── SEQUENTIAL TRANSITION: fade out → switch → fade in
+       Both slides are NEVER simultaneously visible.        */
+function go(n) {
+  if (n < 0 || n >= N || n === cur || busy) return;
+  busy = true;
+
+  const outSlide = slides[cur];
+  const inSlide  = slides[n];
+  cur = n;
+  updateUI();
+
+  // Step 1: fade out current slide completely
+  gsap.to(outSlide, {
+    opacity: 0, duration: 0.17, ease: 'power1.in',
+    onComplete() {
+      // Step 2: swap active
+      outSlide.classList.remove('on');
+
+      inSlide.classList.add('on');
+      gsap.set(inSlide, { opacity: 0 });
+
+      // Step 3: preset children, then fade in slide
+      const els = inSlide.querySelectorAll('.a');
+      gsap.set(els, { opacity: 0, y: 10 });
+
+      gsap.to(inSlide, {
+        opacity: 1, duration: 0.2, ease: 'power2.out',
+        onComplete() {
+          busy = false;
+          if (cur === N - 1) countUp();
+        }
+      });
+
+      gsap.to(els, {
+        opacity: 1, y: 0, duration: 0.38, stagger: 0.055,
+        ease: 'power2.out', delay: 0.06, clearProps: 'all'
+      });
+    }
+  });
+}
+
+function countUp() {
+  [{ id: 'st1', v: 2, s: '+' }, { id: 'st2', v: 8, s: '+' }, { id: 'st3', v: 98, s: '%' }]
+    .forEach(({ id, v, s }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      let i = 0;
+      const steps = 40, dt = 1000 / steps;
+      const t = setInterval(() => {
+        i++;
+        el.textContent = Math.round(v * i / steps) + s;
+        if (i >= steps) { el.textContent = v + s; clearInterval(t); }
+      }, dt);
+    });
+}
+
+// keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(cur + 1); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); go(cur - 1); }
+});
+document.getElementById('bp').addEventListener('click', () => go(cur - 1));
+document.getElementById('bn').addEventListener('click', () => go(cur + 1));
+
+// touch
+let tx = 0;
+document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - tx;
+  if (Math.abs(dx) > 40) go(dx < 0 ? cur + 1 : cur - 1);
+});
+
+// init first slide
+updateUI();
+gsap.set(slides[0], { opacity: 0 });
+gsap.to(slides[0], { opacity: 1, duration: 0.3, delay: 0.1, onComplete: () => enterAnim(slides[0]) });
+</script>
+</body>
+</html>

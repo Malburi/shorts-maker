@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from ..models import KeyMoment
+from . import smart_crop
 
 
 def _run(cmd: list) -> subprocess.CompletedProcess:
@@ -9,15 +10,35 @@ def _run(cmd: list) -> subprocess.CompletedProcess:
 
 
 async def make_short(video_path: Path, moment: KeyMoment, output_path: Path) -> Path:
-    """Clip and reformat to 9:16 vertical (1080x1920) with fade in/out."""
-    duration = moment.end - moment.start
+    """Clip and reformat to 9:16 vertical (1080x1920) with fade in/out.
 
-    vf = (
-        "scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,"
+    인물(얼굴)을 감지해 그 위치 중심으로 크롭한다. 감지에 실패하면
+    잘라내지 않고 풀샷 + 위아래 검은 여백(레터박스)으로 폴백한다.
+    """
+    duration = moment.end - moment.start
+    fade = (
         f"fade=t=in:st=0:d=0.5,"
         f"fade=t=out:st={max(0, duration - 0.5):.2f}:d=0.5"
     )
+
+    crop = await asyncio.to_thread(
+        smart_crop.compute_crop_params, video_path, moment.start, moment.end
+    )
+
+    if crop:
+        # 인물 중심 크롭 → 9:16로 스케일
+        geometry = (
+            f"crop=w={crop['w']}:h={crop['h']}:x={crop['x']}:y={crop['y']},"
+            "scale=1080:1920,"
+        )
+    else:
+        # 레터박스 폴백: 풀샷을 가로폭에 맞춰 넣고 위아래 검은 여백 (잘림 없음)
+        geometry = (
+            "scale=1080:1920:force_original_aspect_ratio=decrease,"
+            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
+        )
+
+    vf = geometry + fade
 
     cmd = [
         "ffmpeg", "-y",
