@@ -2,18 +2,22 @@
 스마트 크롭: 가로 영상을 9:16 세로로 변환할 때 핵심 피사체를 감지해
 크롭 창을 그 쪽으로 이동시킨다. 장르를 가리지 않도록 자동 다단계로 동작한다.
 
-감지 우선순위 (앞 단계가 실패하면 다음 단계로):
+감지 우선순위 (앞 단계가 신호를 못 내면 다음 단계로):
   1) 얼굴   — OpenCV Haar cascade (정면+측면). 인물/토킹헤드.
-  2) 움직임 — 프레임 차분의 열(column) 분포 중심. 스포츠 공·게임 캐릭터·액션 등
+  2) 움직임 — 프레임 차분의 열(column) 분포. 스포츠 공·게임 캐릭터·액션 등
               "움직이는 주 피사체"를 클래스 무관하게 추적.
-  3) 세일런시 — 엣지/디테일 밀집도(Laplacian)의 열 중심. 정지 장면의 주 피사체.
+  3) 세일런시 — 엣지/디테일 밀집도(Laplacian)의 열 분포. 정지 장면의 주 피사체.
   4) 모두 실패 → None → 호출부가 레터박스(풀샷 + 위아래 검은 여백) 폴백.
+
+각 단계는 가로 1D "중요도 프로파일"을 만들고, 공통 로직(_best_window_center)이
+그 위에서 **9:16 크롭 창이 담을 수 있는 중요도 합이 최대가 되는 위치**를 찾는다.
+방송 화면의 수어 통역사 박스·로고벽 오탐처럼 한쪽에 몰린 부차적 신호가 있어도
+"가장 큰 단일 군집"을 고르므로 평균/중앙값이 두 군집 사이로 끌려가지 않는다.
 
 opencv-python(+numpy)만 사용하므로 별도 모델 다운로드/무거운 의존성이 없다.
 import/감지 실패는 모두 None으로 흡수해 파이프라인이 죽지 않도록 한다.
 """
 from pathlib import Path
-from statistics import median
 
 TARGET_W = 1080
 TARGET_H = 1920
@@ -23,9 +27,10 @@ TARGET_RATIO = TARGET_W / TARGET_H  # 9:16 = 0.5625
 SAMPLE_INTERVAL = 0.5   # 초 간격으로 프레임 샘플링
 MAX_SAMPLES = 20        # 클립당 최대 샘플 수 (처리 시간 가드)
 
-# 움직임/세일런시 임계값 — 신호가 약하거나 평탄하면 다음 단계/레터박스로 넘긴다.
-MOTION_MIN_MEAN = 1.5   # 평균 프레임 차분(0~255)이 이보다 작으면 "움직임 없음"
-CONCENTRATION_MIN = 1.3 # 열 분포의 (최댓값/평균) 비. 이보다 평탄하면 "주 피사체 불명확"
+# 움직임/세일런시 임계값
+MOTION_MIN_MEAN = 1.5       # 프레임당 평균 차분(0~255)이 이보다 작으면 "움직임 없음"
+# 최적 창/최악 창 중요도 비. 이보다 평탄하면(=주 피사체 불명확) 다음 단계/레터박스로.
+WINDOW_CONCENTRATION_MIN = 1.2
 
 
 def _sample_gray_frames(cap, start: float, end: float) -> list:
@@ -48,33 +53,61 @@ def _sample_gray_frames(cap, start: float, end: float) -> list:
     return frames
 
 
-def _column_centroid(col, width: int) -> float | None:
-    """열(column) 분포에서 가중 중심 x를 구한다. 너무 평탄하면 None."""
+def _best_window_center(prof, width: int, cw: int, check_concentration: bool) -> float | None:
+    """
+    1D 중요도 프로파일 위에서 폭 cw 창의 합이 최대인 위치를 찾아,
+    그 창 내부의 무게중심 x를 반환한다.
+
+    check_concentration=True면 최적/평균 창 합의 비가 임계값 미만일 때
+    (=신호가 평탄해 주 피사체 불명확) None을 반환한다. 얼굴 단계는 검출 자체가
+    강한 신호이므로 False로 호출한다.
+    """
     import numpy as np
 
-    col = np.asarray(col, dtype="float64")
-    if col.size == 0:
+    prof = np.asarray(prof, dtype="float64")
+    if prof.size == 0 or prof.sum() <= 0:
         return None
-    # 1D 스무딩으로 노이즈 완화
-    k = max(1, width // 64)
-    if k > 1:
-        kernel = np.ones(k) / k
-        col = np.convolve(col, kernel, mode="same")
 
-    total = col.sum()
-    if total <= 0:
-        return None
-    mean = col.mean()
-    if mean <= 0 or (col.max() / mean) < CONCENTRATION_MIN:
-        return None  # 주 피사체가 불명확(평탄) → 다음 단계/레터박스로
+    cw = min(cw, width)
+    if cw >= width:
+        xs = np.arange(prof.size)
+        return float((xs * prof).sum() / prof.sum())
 
-    xs = np.arange(col.size)
-    return float((xs * col).sum() / total)
+    csum = np.concatenate([[0.0], np.cumsum(prof)])
+    starts = np.arange(0, width - cw + 1)
+    wsum = csum[starts + cw] - csum[starts]
+
+    if check_concentration:
+        mean = wsum.mean()
+        if mean <= 0 or (wsum.max() / mean) < WINDOW_CONCENTRATION_MIN:
+            return None
+
+    best = int(starts[int(np.argmax(wsum))])
+    seg = prof[best:best + cw]
+    seg_total = seg.sum()
+    if seg_total <= 0:
+        return best + cw / 2.0
+    xs = np.arange(best, best + cw)
+    return float((xs * seg).sum() / seg_total)
 
 
-def _face_center(frames: list, width: int) -> float | None:
-    """얼굴 감지 → 면적 가중 median center_x. 없으면 None."""
+# 주 피사체 얼굴 대비 이 비율 미만 점수의 얼굴은 2차 인물/오탐으로 보고 제외.
+FACE_DOMINANT_RATIO = 0.45
+# 얼굴 중앙 선호 강도. 화면 가장자리 얼굴의 가중치를 (1-이 값)까지 낮춰,
+# 방송에서 흔한 가장자리 2차 인물보다 중앙의 주 피사체를 우선한다. 0이면 비활성.
+FACE_CENTRALITY_STRENGTH = 0.5
+
+
+def _face_profile(frames: list, width: int):
+    """얼굴 감지 → 면적×선명도 가중 중요도 프로파일(길이 width). 얼굴 없으면 None.
+
+    각 얼굴의 점수 = 면적 × 선명도(라플라시안 분산). 카메라에 가까운 주 피사체는
+    크고 선명한 반면, 배경의 2차 인물(아웃포커스)·수어 통역사 박스·로고벽 오탐은
+    작거나 흐릿해 점수가 낮다. 최고 점수의 FACE_DOMINANT_RATIO 미만 얼굴은 버린 뒤,
+    남은 얼굴 점수를 각자의 가로 구간[x, x+w]에 고르게 분배한다.
+    """
     import cv2
+    import numpy as np
 
     cascade_dir = cv2.data.haarcascades
     frontal = cv2.CascadeClassifier(cascade_dir + "haarcascade_frontalface_default.xml")
@@ -82,31 +115,49 @@ def _face_center(frames: list, width: int) -> float | None:
     if frontal.empty() and profile.empty():
         return None
 
-    centers: list[tuple[float, float]] = []
+    # 1패스: 모든 얼굴 수집 (가로 구간 + 점수=면적×선명도)
+    dets = []  # (x0, x1, score)
     for gray in frames:
-        faces = list(frontal.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+        faces = list(frontal.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6,
                                               minSize=(40, 40)))
         if not profile.empty():
-            faces += list(profile.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+            faces += list(profile.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6,
                                                    minSize=(40, 40)))
         for (x, y, w, h) in faces:
-            centers.append((x + w / 2.0, float(w * h)))
+            x0 = max(0, x)
+            x1 = min(width, x + w)
+            y0 = max(0, y)
+            y1 = min(gray.shape[0], y + h)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            roi = gray[y0:y1, x0:x1]
+            # 선명도 = 라플라시안 분산. 흐린 배경 인물은 낮음. +1로 0 방지.
+            sharp = float(cv2.Laplacian(roi, cv2.CV_32F).var()) + 1.0
+            # 중앙 선호: 가장자리 얼굴 가중치 하향 (가장자리→1-STRENGTH, 중앙→1.0)
+            cx = (x0 + x1) / 2.0
+            centrality = 1.0 - FACE_CENTRALITY_STRENGTH * min(1.0, abs(cx - width / 2.0) / (width / 2.0))
+            score = float(w * h) * sharp * centrality
+            dets.append((x0, x1, score))
 
-    if not centers:
+    if not dets:
         return None
 
-    max_area = max(a for _, a in centers)
-    weighted_xs: list[float] = []
-    for cx, area in centers:
-        weight = max(1, int(round(3 * area / max_area)))  # 1~3
-        weighted_xs.extend([cx] * weight)
-    return float(median(weighted_xs))
+    # 주 피사체(최고 점수)의 일정 비율 미만은 제외
+    max_score = max(s for _, _, s in dets)
+    threshold = FACE_DOMINANT_RATIO * max_score
+
+    prof = np.zeros(width, dtype="float64")
+    for x0, x1, score in dets:
+        if score < threshold:
+            continue
+        prof[x0:x1] += score / (x1 - x0)
+
+    return prof if prof.sum() > 0 else None
 
 
-def _motion_center(frames: list, width: int) -> float | None:
-    """프레임 차분(움직임)의 열 분포 중심. 움직임이 약하면 None."""
+def _motion_profile(frames: list, width: int):
+    """프레임 차분(움직임)의 열 분포 프로파일. 움직임이 약하면 None."""
     import cv2
-    import numpy as np
 
     if len(frames) < 2:
         return None
@@ -118,13 +169,11 @@ def _motion_center(frames: list, width: int) -> float | None:
 
     if acc is None or acc.mean() < MOTION_MIN_MEAN * (len(frames) - 1):
         return None
-
-    col = acc.sum(axis=0)
-    return _column_centroid(col, width)
+    return acc.sum(axis=0)
 
 
-def _saliency_center(frames: list, width: int) -> float | None:
-    """엣지/디테일 밀집도(Laplacian)의 열 분포 중심. 평탄하면 None."""
+def _saliency_profile(frames: list, width: int):
+    """엣지/디테일 밀집도(Laplacian)의 열 분포 프로파일."""
     import cv2
     import numpy as np
 
@@ -136,8 +185,7 @@ def _saliency_center(frames: list, width: int) -> float | None:
 
     if acc is None:
         return None
-    col = acc.sum(axis=0)
-    return _column_centroid(col, width)
+    return acc.sum(axis=0)
 
 
 def _build_params(center_x: float, width: int, height: int) -> dict:
@@ -181,12 +229,22 @@ def compute_crop_params(video_path: Path, start: float, end: float) -> dict | No
         if not frames:
             return None
 
-        # 자동 다단계: 얼굴 → 움직임 → 세일런시
-        center_x = _face_center(frames, width)
+        cw = min(round(height * TARGET_RATIO), width)
+
+        # 자동 다단계: 얼굴 → 움직임 → 세일런시.
+        # 얼굴은 검출 자체가 강한 신호 → 집중도 검사 생략. 움직임/세일런시는 검사.
+        center_x = None
+        face = _face_profile(frames, width)
+        if face is not None:
+            center_x = _best_window_center(face, width, cw, check_concentration=False)
         if center_x is None:
-            center_x = _motion_center(frames, width)
+            motion = _motion_profile(frames, width)
+            if motion is not None:
+                center_x = _best_window_center(motion, width, cw, check_concentration=True)
         if center_x is None:
-            center_x = _saliency_center(frames, width)
+            sal = _saliency_profile(frames, width)
+            if sal is not None:
+                center_x = _best_window_center(sal, width, cw, check_concentration=True)
         if center_x is None:
             return None  # 주 피사체 불명확 → 레터박스
 
