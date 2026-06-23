@@ -31,9 +31,10 @@ _SCRIPT_SYSTEM = """\
 규칙:
 - visual_style은 전체 영상을 관통하는 '하나의 룩'입니다. 등장 인물/피사체·배경·화풍·색감·조명을 구체적으로 고정하세요.
 - 각 장면 image_prompt는 visual_style을 반복 설명하지 말고, 그 장면 고유의 동작·구도·순간만 묘사하세요 (일관성은 기준 이미지로 유지됨).
-- 프롬프트에 길이 언급이 있으면 target_duration에 반영(30/60/90), 없으면 60.
-- 장면 수: 30초→5~6개, 60초→8~10개, 90초→12~14개
-- 나레이션은 장면당 3~6문장으로 자연스럽게 이어지는 이야기처럼. 숫자·사례로 신뢰도를 높이세요.
+- 영상은 하드 컷이 아니라 '한 컷처럼 이어지는 연속 샷'입니다. 2번 장면부터 image_prompt는 직전 장면에서 카메라·피사체가 자연스럽게 이어져 발전하는 동작/구도로 묘사하세요(장소·구도가 갑자기 튀지 않게).
+- 프롬프트에 길이 언급이 있으면 target_duration에 반영(30/60/90), 없으면 30.
+- 각 장면은 약 6초입니다. 장면 수 = target_duration ÷ 6 (30초→5개, 60초→10개, 90초→15개). 이 개수를 반드시 지키세요.
+- 나레이션은 장면당 **딱 1문장**(한국어로 6초 내외 분량, 약 25~40자). 길게 쓰지 마세요. 여러 장면의 문장이 이어지며 하나의 이야기를 이루게 하세요. 숫자·사례로 신뢰도를 높이되 한 문장에 한 가지만 담으세요.
 - 웹 검색 결과가 제공되면 최신 사실·수치를 나레이션에 자연스럽게 반영하세요.
 - narration은 한국어, visual_style과 image_prompt는 영어.
 - JSON 외 다른 텍스트는 절대 출력 금지
@@ -49,13 +50,13 @@ def _generate_script_sync(prompt: str, search_context: str = "") -> dict:
     user_prompt = "\n".join(parts)
 
     resp = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5.5",
         messages=[
             {"role": "system", "content": _SCRIPT_SYSTEM},
             {"role": "user", "content": user_prompt},
         ],
         response_format={"type": "json_object"},
-        temperature=0.8,
+        # gpt-5.5는 기본 temperature(1)만 지원 — 커스텀 temperature 지정 시 400 에러
     )
     return json.loads(resp.choices[0].message.content)
 

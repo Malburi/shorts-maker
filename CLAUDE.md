@@ -16,7 +16,7 @@ AI-powered YouTube Shorts generator with two modes:
 | Pipeline orchestration | LangGraph (StateGraph + Send API) |
 | Frontend | Vue 3 + Tailwind CSS + Vite |
 | Video processing | ffmpeg (must be in PATH) |
-| AI | OpenAI Whisper/GPT-4o/gpt-image-1 (upload thumbnails); Google Gemini 2.5-flash (key moments), **Nano Banana `gemini-2.5-flash-image`** (create images), **Veo `veo-3.1-fast-generate-preview`** (create video); edge-tts (Microsoft Azure, free) |
+| AI | OpenAI Whisper/GPT-5.5 (create script)/gpt-image-1 (upload thumbnails); Google Gemini 2.5-flash (key moments), **Nano Banana `gemini-2.5-flash-image`** (create images), **Veo `veo-3.1-fast-generate-preview`** (create video); edge-tts (Microsoft Azure, free) |
 | Vision | OpenCV (`opencv-python`) — face detection for smart vertical crop |
 | Vector DB | ChromaDB (local, for RAG Q&A) |
 | Real-time | Server-Sent Events (SSE) |
@@ -62,7 +62,7 @@ get_duration → extract_audio → transcribe → index_knowledge → select_mom
   → dispatch_clips → [node_process_clip × N in parallel] → concat_highlight → finalize
 ```
 
-**AI Create pipeline:** `create_pipeline.py` — asyncio-based, no LangGraph. Stages: (0) generate one **anchor image** from `script.visual_style`; (1) per scene, `asyncio.gather()` runs TTS + Nano Banana image generation **using the anchor as a reference** (style/character/setting consistency); (2) per scene, **Veo image-to-video** (concurrency-limited via `asyncio.Semaphore`) — on Veo failure/timeout it falls back to a **Ken Burns (zoompan) still-image clip**; (3) concat → (4) ASS captions burn-in → (5) thumbnail = first scene image. Veo audio is discarded; TTS is mapped in via ffmpeg `-map 0:v -map 1:a`. Clip length is matched to the TTS narration (`tpad` clones the last frame to extend short Veo clips, `-t` trims).
+**AI Create pipeline:** `create_pipeline.py` — asyncio-based, no LangGraph. Stages: (0) generate one **anchor image** from `script.visual_style`; (1a) generate **only the first scene's** Nano Banana image (anchor as reference) — later clips don't need their own image; (1b) all scene TTS in parallel via `asyncio.gather()` (drives each clip's length); (2) **Veo last-frame chaining** — clips run **sequentially**: clip 1 starts from scene-1 image, and **clip N starts from clip N-1's last frame** (extracted via `_extract_last_frame`, `ffmpeg -sseof -1`), so the boundary frame is identical and the clips read as one continuous shot. On Veo failure/timeout a clip falls back to a **Ken Burns (zoompan) still-image clip** built from that same input frame; (3) **re-encoding concat** (`_concat_reencode`, not `-c copy`) — re-encodes to uniform CFR 30fps + continuous AAC, which removes the per-join AAC-priming drift and fps-mismatch judder that plagued `-c copy` (Veo is 24fps, Ken Burns fallback is 30fps) → (4) ASS captions burn-in → (5) thumbnail = first scene image. Veo audio is discarded; TTS is mapped in via ffmpeg `-map 0:v -map 1:a`. Clip length is matched to the TTS narration (`tpad` clones the last frame to extend short Veo clips, `-t` trims). Note: chaining means Veo is **no longer parallel** (each clip depends on the previous), so a 30–60s video takes minutes × clip count.
 
 **Services (`backend/services/`):**
 
@@ -76,7 +76,7 @@ get_duration → extract_audio → transcribe → index_knowledge → select_mom
 | `thumbnail_gen.py` | gpt-image-1 AI thumbnail or fallback to frame extraction (upload mode only) |
 | `veo_maker.py` | Nano Banana (`gemini-2.5-flash-image`) 9:16 image gen (optional reference image for consistency) + Veo (`veo-3.1-fast-generate-preview`) image-to-video (long-running op polling, 6-min timeout); `pick_duration()` chooses 4/6/8s |
 | `rag.py` | ChromaDB + text-embedding-3-small; GPT-4o-mini for answers |
-| `ai_creator.py` | Single prompt → DuckDuckGo search → GPT-4o `generate_script(prompt)` returning unified `visual_style` + per-scene narration/image_prompt (no more interview/outline) |
+| `ai_creator.py` | Single prompt → DuckDuckGo search → GPT-5.5 `generate_script(prompt)` returning unified `visual_style` + per-scene narration/image_prompt (no more interview/outline). Note: gpt-5.5 only allows default `temperature` (1) — do not pass a custom temperature |
 | `tts_maker.py` | edge-tts primary (ko-KR-SunHiNeural) → OpenAI TTS-1-hd fallback |
 
 **Models:** `models.py` — Pydantic v2: `Job`, `JobStatus`, `KeyMoment`, `ShortResult`, `CreateJob`, `ScriptData` (now includes `visual_style`), `ScriptScene`. (`ContentOutline` is now dead code — left in place but no longer used after the interview/outline removal.)
@@ -108,7 +108,7 @@ chroma_db/                 # ChromaDB persistent storage
 
 **ffmpeg in `asyncio.to_thread()`**: All ffmpeg subprocesses run in thread pool to avoid blocking the FastAPI event loop.
 
-**Fallback chains**: Gemini (rate-limit retry across model versions), TTS (edge-tts free → OpenAI paid), upload thumbnail (gpt-image-1 → frame extraction), **vertical conversion (smart crop → letterbox)**, **create scene video (Veo → Ken Burns still-image clip)**, **create anchor image (anchor → per-scene independent images if anchor gen fails)**. Always check cost before calling gpt-image-1 with `quality="high"`. **Veo is expensive** (paid Gemini billing required) and slow (minutes per clip); concurrency is capped via `asyncio.Semaphore(VEO_CONCURRENCY)`.
+**Fallback chains**: Gemini (rate-limit retry across model versions), TTS (edge-tts free → OpenAI paid), upload thumbnail (gpt-image-1 → frame extraction), **vertical conversion (smart crop → letterbox)**, **create scene video (Veo → Ken Burns still-image clip)**, **create anchor image (anchor → per-scene independent images if anchor gen fails)**. Always check cost before calling gpt-image-1 with `quality="high"`. **Veo is expensive** (paid Gemini billing required) and slow (minutes per clip); in create mode Veo clips now run **sequentially** (last-frame chaining), so total time scales with clip count.
 
 **Korean language specifics**: ASS subtitles written with UTF-8-BOM (`utf-8-sig`). Whisper called with `language="ko"`. TTS uses `ko-KR-SunHiNeural`.
 
@@ -144,7 +144,7 @@ Claude는 아래 상황에 해당하는 스킬을 우선 사용한다. 스킬은
 
 1. **requirements.txt 누락 의존성 (배포 치명, 최우선)**: `google-genai`, `opencv-python`는 이제 `backend/requirements.txt`에 추가됨. 그러나 코드가 import하는 `langgraph`, `langchain`, `chromadb`, `ddgs`는 여전히 빠져 있어 `pip install -r backend/requirements.txt`만으로는 실행 불가하다. 실제 가상환경 `pip freeze`로 나머지도 버전 고정 권장.
 2. **폴백 체인 (창작 비주얼)**: `create_pipeline.py`의 장면 영상 생성은 `Veo → Ken Burns(정지이미지 zoompan)` 폴백을 갖춰 일부 장면 실패가 전체 작업을 죽이지 않는다(`_make_scene_clip`의 try/except). 단, **이미지 생성(Nano Banana)** 자체는 여전히 stage 1의 `asyncio.gather`가 fail-fast — 한 장면 이미지 실패는 작업 전체 ERROR. 기준 이미지(anchor) 생성 실패는 레퍼런스 없이 진행(폴백)한다.
-3. **OpenAI 호출 timeout/retry 전무**: Whisper/gpt-4o/embeddings/이미지 호출 모두 무제한 대기 가능 → 행(hang) 시 SSE 폴링이 영원히 진행 중 표시. 재시도/백오프는 `key_moments.py`(Gemini)에만 존재. `OpenAI(timeout=..., max_retries=...)` 공통 클라이언트 도입 권장.
+3. **OpenAI 호출 timeout/retry 전무**: Whisper/gpt-5.5/embeddings/이미지 호출 모두 무제한 대기 가능 → 행(hang) 시 SSE 폴링이 영원히 진행 중 표시. 재시도/백오프는 `key_moments.py`(Gemini)에만 존재. `OpenAI(timeout=..., max_retries=...)` 공통 클라이언트 도입 권장.
 4. **GEMINI_API_KEY KeyError 위험**: `key_moments.py`에서 `os.environ[...]` 직접 인덱싱 → 미설정 시 불친절한 KeyError로 파이프라인 ERROR. `os.getenv` + 기동 시 사전 검증 권장.
 5. **SSE 안정성**: 프론트 EventSource(App.vue, AICreateTab.vue)가 `onerror`에서 무조건 `close()`만 하고 재연결이 없다. 서버는 jobs dict를 폴링하므로 서버 재시작으로 job이 dict에서 사라지면 스트림이 조용히 break → 프론트는 영원히 진행 중. heartbeat/타임아웃/재연결 로직 부재.
 6. **에러 핸들링 일관성**: 노드별 try/except 없이 `run_pipeline` 최상위에서만 포괄 catch → 어느 노드가 실패했는지 사용자 메시지에 미반영. `create_pipeline`도 단일 try. 부분 실패 cleanup(고아 클립 파일 정리) 로직 없음.
@@ -152,7 +152,7 @@ Claude는 아래 상황에 해당하는 스킬을 우선 사용한다. 스킬은
 
 추가 주의:
 - **공유 핵심 함수**: `shorts_maker.concat_shorts`, `thumbnail_gen.extract_frame`, `caption_maker._write_ass/_burn`는 업로드+창작 두 파이프라인이 공유한다. `create_pipeline`이 `caption_maker`의 비공개 함수(`_write_ass`, `_burn`)를 직접 import하므로 시그니처 변경 시 양쪽 동시 영향. (`shorts_maker.make_short`는 `smart_crop`을 호출하므로 업로드 전용.)
-- **Veo 비용/지연**: `veo_maker.VIDEO_MODEL`/`VEO_RESOLUTION`/`VEO_CONCURRENCY`로 등급·해상도·동시성 조절. Veo는 장면당 수십 초~수 분, 비용도 크므로 테스트 시 장면 수를 줄여서(예: 1~2개) 검증할 것.
+- **Veo 비용/지연**: `veo_maker.VIDEO_MODEL`/`VEO_RESOLUTION`로 등급·해상도 조절. 창작 모드는 **마지막 프레임 이어받기**로 Veo를 순차 실행하므로(클립 N이 N-1 결과에 의존) 총 시간이 클립 수에 비례해 늘어난다. Veo는 클립당 수십 초~수 분, 비용도 크므로 테스트 시 길이를 짧게(예: 30초, 클립 2~4개) 잡아 검증할 것.
 - **테스트 전무**: 회귀 안전망이 없다. 변경 시 `safe-modify` 워크플로우로 영향도 확인 + 테스트 골격 생성 권장.
 - **CORS 전면 개방**(`allow_origins=["*"]`) + 인증 없음 + 무제한 비용 LLM/이미지 호출 → 운영 노출 시 비용/보안 가드 필요. 로컬 단일 사용자 도구 전제.
 - **챗 엔드포인트 경로**: 실제는 `POST /api/jobs/{job_id}/chat` (이전 문서의 `/api/chat`는 드리프트, 위에서 수정됨).
@@ -165,3 +165,6 @@ Claude는 아래 상황에 해당하는 스킬을 우선 사용한다. 스킬은
 | 2026-06-21 | 업로드 세로 변환을 스마트 크롭(OpenCV 다단계: 얼굴→움직임→세일런시)+레터박스 폴백으로 전환 | `services/smart_crop.py`(신규), `shorts_maker.py`, `requirements.txt` | 센터 크롭 잘림 해결 + 스포츠 공·게임 캐릭터 등 장르 무관 주 피사체 추적 |
 | 2026-06-21 | 창작 모드를 Nano Banana 이미지 + Veo 영상 생성으로 교체(gpt-image-1 정지이미지 폐기) | `services/veo_maker.py`(신규), `create_pipeline.py`, `requirements.txt` | 정지이미지 대신 실제 모션 영상 생성 |
 | 2026-06-21 | 창작 입력을 4질문 인터뷰→단일 프롬프트로 단순화, 기준 이미지(anchor)+레퍼런스로 장면 간 일관성 확보 | `ai_creator.py`, `routers/create.py`, `models.py`(`visual_style`), `AICreateTab.vue` | 쓸데없는 질문 제거 + 영상 통일감 향상 |
+| 2026-06-22 | 창작 모드 Veo를 **마지막 프레임 이어받기(순차 체이닝)**로 전환 — 클립 N이 N-1의 마지막 프레임에서 이어 생성되어 한 컷처럼 자연스럽게 연결. 2번 이후 장면 이미지 생성 생략(비용↓), `VEO_CONCURRENCY` 제거 | `create_pipeline.py`, `services/ai_creator.py`(연속 샷 프롬프트) | 장면 전환이 툭툭 끊기는 문제 해결 — 30~60초 영상을 끊김 없이 |
+| 2026-06-23 | 창작 대본 생성 모델 `gpt-4o` → `gpt-5.5`. gpt-5.5가 커스텀 `temperature`(0.8)를 거부(기본 1만 허용)해 `temperature` 인자 제거 | `services/ai_creator.py` | 최신 모델 적용 |
+| 2026-06-23 | 창작 영상 싱크/연결 버그 수정: ①Veo 클립도 30fps로 통일 ②concat을 `-c copy`→**재인코딩(`_concat_reencode`)**으로 교체(AAC priming 드리프트+fps 혼재 제거) ③대본 길이 폭주 수정(장면당 3~6문장→1문장 ~6초, 장면수=길이÷6) ④Veo 폴백 사유 로깅 | `create_pipeline.py`, `services/ai_creator.py` | "음성 싱크 안 맞고 영상 연결 안 됨" 신고 (88초/30초 요청, 24·30fps 혼재) |
